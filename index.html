@@ -1,0 +1,1474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>UKRI Fungisphere — Active Research Tracker</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <style>
+    /* ── UKRI brand palette ───────────────────────────────────────────── */
+    :root {
+      --ukri-purple:   #3D0065;
+      --ukri-teal:     #00A896;
+      --ukri-pink:     #FF005C;
+      --ukri-gold:     #F5A623;
+      --ukri-blue:     #005AFF;
+      --ukri-green:    #00B050;
+      --bg:            #0D0D1A;
+      --bg-card:       #14142A;
+      --bg-card2:      #1A1A35;
+      --border:        rgba(255,255,255,0.08);
+      --text:          #F0EEF8;
+      --text-muted:    #8B88A8;
+      --radius:        12px;
+      --radius-sm:     8px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+
+    /* ── Header ──────────────────────────────────────────────────────── */
+    header {
+      background: linear-gradient(135deg, var(--ukri-purple) 0%, #1a003a 60%, #0D0D1A 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      backdrop-filter: blur(8px);
+    }
+    .header-inner {
+      max-width: 1400px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      height: 64px;
+    }
+    .logo-mark {
+      width: 36px;
+      height: 36px;
+      background: linear-gradient(135deg, var(--ukri-teal), var(--ukri-purple));
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+    .site-title {
+      font-size: 1.1rem;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      color: var(--text);
+    }
+    .site-subtitle {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+    }
+    .header-meta {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .last-updated {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+    }
+    .refresh-btn {
+      background: var(--ukri-teal);
+      color: #fff;
+      border: none;
+      padding: 6px 14px;
+      border-radius: var(--radius-sm);
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: opacity 0.2s;
+    }
+    .refresh-btn:hover { opacity: 0.85; }
+    .refresh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .spin { animation: spin 1s linear infinite; display: inline-block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Nav tabs ─────────────────────────────────────────────────────── */
+    .nav-bar {
+      background: var(--bg-card);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+    }
+    .nav-inner {
+      max-width: 1400px;
+      margin: 0 auto;
+      display: flex;
+      gap: 0;
+    }
+    .tab-btn {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      padding: 14px 20px;
+      font-size: 0.85rem;
+      font-weight: 500;
+      cursor: pointer;
+      border-bottom: 3px solid transparent;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+    .tab-btn:hover { color: var(--text); }
+    .tab-btn.active {
+      color: var(--ukri-teal);
+      border-bottom-color: var(--ukri-teal);
+    }
+
+    /* ── Main layout ─────────────────────────────────────────────────── */
+    main {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 28px 24px;
+    }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* ── Stat cards ───────────────────────────────────────────────────── */
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+    .stat-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      position: relative;
+      overflow: hidden;
+    }
+    .stat-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+    }
+    .stat-card.c-teal::before   { background: var(--ukri-teal); }
+    .stat-card.c-pink::before   { background: var(--ukri-pink); }
+    .stat-card.c-gold::before   { background: var(--ukri-gold); }
+    .stat-card.c-blue::before   { background: var(--ukri-blue); }
+    .stat-card.c-green::before  { background: var(--ukri-green); }
+    .stat-card.c-purple::before { background: var(--ukri-purple); }
+    .stat-label {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+    }
+    .stat-value {
+      font-size: 2rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      line-height: 1;
+    }
+    .stat-sub {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    /* ── Chart grid ───────────────────────────────────────────────────── */
+    .chart-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      margin-bottom: 28px;
+    }
+    @media (max-width: 900px) { .chart-grid { grid-template-columns: 1fr; } }
+    .chart-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+    }
+    .chart-title {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 16px;
+    }
+    .chart-wrap {
+      position: relative;
+      height: 240px;
+    }
+    .chart-wrap.tall { height: 300px; }
+
+    /* ── Topic cloud ─────────────────────────────────────────────────── */
+    .topic-cloud {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 4px 0;
+    }
+    .topic-tag {
+      background: rgba(0,168,150,0.12);
+      border: 1px solid rgba(0,168,150,0.3);
+      color: var(--ukri-teal);
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 0.78rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+      user-select: none;
+    }
+    .topic-tag:hover, .topic-tag.selected {
+      background: var(--ukri-teal);
+      color: #fff;
+      border-color: var(--ukri-teal);
+    }
+    .topic-tag.lg { font-size: 0.92rem; padding: 6px 14px; }
+    .topic-tag.xl { font-size: 1.05rem; padding: 7px 16px; }
+
+    /* ── Project table ────────────────────────────────────────────────── */
+    .table-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 14px;
+      flex-wrap: wrap;
+    }
+    .table-title {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .count-badge {
+      background: rgba(0,168,150,0.15);
+      color: var(--ukri-teal);
+      border-radius: 20px;
+      padding: 2px 10px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .table-wrap {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .table-scroll { overflow-x: auto; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+    }
+    thead tr {
+      background: var(--bg-card2);
+      border-bottom: 1px solid var(--border);
+    }
+    th {
+      padding: 10px 14px;
+      text-align: left;
+      font-weight: 600;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      white-space: nowrap;
+      cursor: pointer;
+      user-select: none;
+    }
+    th:hover { color: var(--text); }
+    th .sort-arrow { margin-left: 4px; opacity: 0.4; }
+    th.sorted .sort-arrow { opacity: 1; color: var(--ukri-teal); }
+    tbody tr {
+      border-bottom: 1px solid var(--border);
+      transition: background 0.15s;
+    }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: rgba(255,255,255,0.03); }
+    td { padding: 10px 14px; vertical-align: top; }
+    .td-title {
+      font-weight: 500;
+      color: var(--text);
+      max-width: 400px;
+      cursor: pointer;
+    }
+    .td-title:hover { color: var(--ukri-teal); }
+    .td-org { color: var(--text-muted); max-width: 200px; }
+    .funder-chip {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 0.68rem;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .cat-chip {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 0.68rem;
+      font-weight: 600;
+      background: rgba(255,255,255,0.06);
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+    .ss-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 0.65rem;
+      font-weight: 700;
+      background: rgba(245,166,35,0.15);
+      color: var(--ukri-gold);
+      border: 1px solid rgba(245,166,35,0.3);
+      white-space: nowrap;
+    }
+    .td-value { font-variant-numeric: tabular-nums; color: var(--text-muted); }
+
+    /* funder colours */
+    .fc-BBSRC   { background: rgba(0,90,255,0.15); color: #7EB3FF; }
+    .fc-NERC    { background: rgba(0,176,80,0.15); color: #5FD88A; }
+    .fc-EPSRC   { background: rgba(255,0,92,0.18); color: #FF7EB3; }
+    .fc-MRC     { background: rgba(0,168,150,0.15); color: var(--ukri-teal); }
+    .fc-AHRC    { background: rgba(245,166,35,0.15); color: var(--ukri-gold); }
+    .fc-ESRC    { background: rgba(200,100,255,0.15); color: #D080FF; }
+    .fc-IUK     { background: rgba(255,80,0,0.15); color: #FFA060; }
+    .fc-HEG     { background: rgba(100,180,255,0.12); color: #90C8FF; }
+    .fc-OTHER   { background: rgba(255,255,255,0.07); color: var(--text-muted); }
+
+    /* ── Pagination ───────────────────────────────────────────────────── */
+    .pagination {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 6px;
+      margin-top: 14px;
+      flex-wrap: wrap;
+    }
+    .page-btn {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 5px 12px;
+      border-radius: var(--radius-sm);
+      font-size: 0.78rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .page-btn:hover, .page-btn.active {
+      background: var(--ukri-teal);
+      border-color: var(--ukri-teal);
+      color: #fff;
+    }
+    .page-info { font-size: 0.75rem; color: var(--text-muted); margin-right: 8px; }
+
+    /* ── Filter / search bar ─────────────────────────────────────────── */
+    .filter-bar {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 18px;
+      align-items: center;
+    }
+    .search-input {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 8px 14px;
+      border-radius: var(--radius-sm);
+      font-size: 0.83rem;
+      flex: 1;
+      min-width: 220px;
+      transition: border-color 0.2s;
+    }
+    .search-input:focus {
+      outline: none;
+      border-color: var(--ukri-teal);
+    }
+    .search-input::placeholder { color: var(--text-muted); }
+    .select-filter {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 8px 12px;
+      border-radius: var(--radius-sm);
+      font-size: 0.83rem;
+      cursor: pointer;
+    }
+    .select-filter:focus { outline: none; border-color: var(--ukri-teal); }
+    select option { background: var(--bg-card2); }
+    .clear-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 8px 12px;
+      border-radius: var(--radius-sm);
+      font-size: 0.78rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .clear-btn:hover { border-color: var(--ukri-pink); color: var(--ukri-pink); }
+
+    /* ── Keyword tab specific ────────────────────────────────────────── */
+    .kw-section {
+      margin-bottom: 28px;
+    }
+    .kw-section-title {
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .kw-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .kw-desc {
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      margin-bottom: 14px;
+      max-width: 700px;
+    }
+    .kw-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+    .kw-chip {
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: 2px solid transparent;
+      transition: all 0.2s;
+    }
+    .kw-chip.aspergillus { background: rgba(255,0,92,0.12); color: #FF7EB3; border-color: rgba(255,0,92,0.3); }
+    .kw-chip.aspergillus:hover, .kw-chip.aspergillus.active { background: var(--ukri-pink); color: #fff; border-color: var(--ukri-pink); }
+    .kw-chip.amr { background: rgba(245,166,35,0.12); color: var(--ukri-gold); border-color: rgba(245,166,35,0.3); }
+    .kw-chip.amr:hover, .kw-chip.amr.active { background: var(--ukri-gold); color: #000; border-color: var(--ukri-gold); }
+    .kw-chip.social { background: rgba(200,100,255,0.12); color: #D080FF; border-color: rgba(200,100,255,0.3); }
+    .kw-chip.social:hover, .kw-chip.social.active { background: #9B30E8; color: #fff; border-color: #9B30E8; }
+    .kw-chip.general { background: rgba(0,168,150,0.12); color: var(--ukri-teal); border-color: rgba(0,168,150,0.3); }
+    .kw-chip.general:hover, .kw-chip.general.active { background: var(--ukri-teal); color: #fff; border-color: var(--ukri-teal); }
+
+    /* ── Abstract modal ───────────────────────────────────────────────── */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.75);
+      z-index: 200;
+      padding: 40px 20px;
+      overflow-y: auto;
+    }
+    .modal-overlay.open { display: flex; align-items: flex-start; justify-content: center; }
+    .modal {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      max-width: 760px;
+      width: 100%;
+      padding: 28px;
+      position: relative;
+    }
+    .modal-close {
+      position: absolute;
+      top: 16px; right: 16px;
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 1.2rem;
+      cursor: pointer;
+    }
+    .modal-title {
+      font-size: 1rem;
+      font-weight: 700;
+      margin-bottom: 12px;
+      padding-right: 32px;
+    }
+    .modal-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .modal-abstract {
+      font-size: 0.83rem;
+      color: var(--text-muted);
+      line-height: 1.7;
+      white-space: pre-wrap;
+    }
+
+    /* ── Social science tab ────────────────────────────────────────────── */
+    .ss-summary {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .ss-card {
+      background: var(--bg-card);
+      border: 1px solid rgba(245,166,35,0.2);
+      border-radius: var(--radius);
+      padding: 16px;
+    }
+    .ss-card-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ukri-gold); margin-bottom: 6px; }
+    .ss-card-value { font-size: 1.6rem; font-weight: 700; }
+
+    /* ── Responsive ───────────────────────────────────────────────────── */
+    @media (max-width: 600px) {
+      .header-inner { height: auto; padding: 12px 0; flex-wrap: wrap; }
+      .tab-btn { padding: 10px 12px; font-size: 0.78rem; }
+      main { padding: 16px; }
+      .chart-grid { grid-template-columns: 1fr; }
+    }
+
+    /* ── Loading state ───────────────────────────────────────────────── */
+    .loading-screen {
+      position: fixed;
+      inset: 0;
+      background: var(--bg);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 16px;
+      z-index: 300;
+    }
+    .loading-logo { font-size: 3rem; }
+    .loading-text { color: var(--text-muted); font-size: 0.9rem; }
+    .loading-bar {
+      width: 200px;
+      height: 3px;
+      background: var(--border);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .loading-progress {
+      height: 100%;
+      background: var(--ukri-teal);
+      border-radius: 2px;
+      animation: load 1.5s ease-in-out infinite;
+    }
+    @keyframes load {
+      0% { width: 0%; margin-left: 0; }
+      50% { width: 60%; margin-left: 20%; }
+      100% { width: 0%; margin-left: 100%; }
+    }
+
+    .section-divider {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 24px 0;
+    }
+  </style>
+</head>
+<body>
+
+<!-- Loading screen -->
+<div class="loading-screen" id="loadingScreen">
+  <div class="loading-logo">🍄</div>
+  <div class="loading-text">Loading UKRI fungal research data…</div>
+  <div class="loading-bar"><div class="loading-progress"></div></div>
+</div>
+
+<!-- Header -->
+<header>
+  <div class="header-inner">
+    <div class="logo-mark">🍄</div>
+    <div>
+      <div class="site-title">UKRI Fungisphere</div>
+      <div class="site-subtitle">Active Research Tracker</div>
+    </div>
+    <div class="header-meta">
+      <span class="last-updated" id="lastUpdatedLabel">Last updated: —</span>
+      <button class="refresh-btn" id="refreshBtn" onclick="refreshData()">
+        <span id="refreshIcon">↺</span> Refresh Data
+      </button>
+    </div>
+  </div>
+</header>
+
+<!-- Nav -->
+<nav class="nav-bar">
+  <div class="nav-inner">
+    <button class="tab-btn active" data-tab="overview" onclick="switchTab('overview', this)">Overview</button>
+    <button class="tab-btn" data-tab="projects" onclick="switchTab('projects', this)">All Projects</button>
+    <button class="tab-btn" data-tab="keywords" onclick="switchTab('keywords', this)">Keyword Filter</button>
+    <button class="tab-btn" data-tab="social" onclick="switchTab('social', this)">Social Science</button>
+  </div>
+</nav>
+
+<!-- Main content -->
+<main>
+
+  <!-- ── TAB: OVERVIEW ─────────────────────────────────────────────── -->
+  <div class="tab-panel active" id="tab-overview">
+
+    <!-- Stat cards -->
+    <div class="stat-grid" id="statGrid">
+      <div class="stat-card c-teal">
+        <div class="stat-label">Total Active Projects</div>
+        <div class="stat-value" id="statTotal">—</div>
+        <div class="stat-sub">across all UKRI funders</div>
+      </div>
+      <div class="stat-card c-pink">
+        <div class="stat-label">Aspergillus Research</div>
+        <div class="stat-value" id="statAspergillus">—</div>
+        <div class="stat-sub">projects mentioning Aspergillus</div>
+      </div>
+      <div class="stat-card c-gold">
+        <div class="stat-label">AMR / Resistance</div>
+        <div class="stat-value" id="statAMR">—</div>
+        <div class="stat-sub">antifungal resistance projects</div>
+      </div>
+      <div class="stat-card c-blue">
+        <div class="stat-label">Social Science</div>
+        <div class="stat-value" id="statSocial">—</div>
+        <div class="stat-sub">social science remit</div>
+      </div>
+      <div class="stat-card c-green">
+        <div class="stat-label">Total Funding</div>
+        <div class="stat-value" id="statFunding">—</div>
+        <div class="stat-sub">declared grant value</div>
+      </div>
+      <div class="stat-card c-purple">
+        <div class="stat-label">Funders</div>
+        <div class="stat-value" id="statFunders">—</div>
+        <div class="stat-sub">UKRI councils & bodies</div>
+      </div>
+    </div>
+
+    <!-- Charts row 1 -->
+    <div class="chart-grid">
+      <div class="chart-card">
+        <div class="chart-title">Projects by Funder</div>
+        <div class="chart-wrap"><canvas id="chartFunder"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Grant Category</div>
+        <div class="chart-wrap"><canvas id="chartCategory"></canvas></div>
+      </div>
+    </div>
+
+    <!-- Charts row 2 -->
+    <div class="chart-grid">
+      <div class="chart-card">
+        <div class="chart-title">Top Institutions (by project count)</div>
+        <div class="chart-wrap tall"><canvas id="chartOrgs"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Top Research Topics</div>
+        <div class="chart-wrap tall">
+          <div class="topic-cloud" id="topicCloud"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Recent projects -->
+    <hr class="section-divider">
+    <div class="table-header">
+      <span class="table-title">Recent / Featured Projects</span>
+      <span class="count-badge" id="recentCount">—</span>
+    </div>
+    <div class="table-wrap">
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Title</th>
+              <th>Funder</th>
+              <th>Category</th>
+              <th>Institution</th>
+              <th>Value (£)</th>
+            </tr>
+          </thead>
+          <tbody id="recentTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── TAB: ALL PROJECTS ──────────────────────────────────────────── -->
+  <div class="tab-panel" id="tab-projects">
+    <div class="filter-bar">
+      <input type="text" class="search-input" id="projectSearch" placeholder="Search title, abstract, institution…" oninput="filterProjects()">
+      <select class="select-filter" id="funderFilter" onchange="filterProjects()">
+        <option value="">All Funders</option>
+      </select>
+      <select class="select-filter" id="categoryFilter" onchange="filterProjects()">
+        <option value="">All Categories</option>
+      </select>
+      <button class="clear-btn" onclick="clearProjectFilters()">Clear filters</button>
+    </div>
+    <div class="table-header">
+      <span class="table-title">All Projects</span>
+      <span class="count-badge" id="projectCount">—</span>
+    </div>
+    <div class="table-wrap">
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th onclick="sortTable('title')">Title <span class="sort-arrow">↕</span></th>
+              <th onclick="sortTable('funder_name')">Funder <span class="sort-arrow">↕</span></th>
+              <th onclick="sortTable('grant_category')">Category <span class="sort-arrow">↕</span></th>
+              <th onclick="sortTable('lead_org')">Institution <span class="sort-arrow">↕</span></th>
+              <th onclick="sortTable('grant_offer')">Value (£) <span class="sort-arrow">↕</span></th>
+              <th>Social Sci</th>
+            </tr>
+          </thead>
+          <tbody id="projectTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="pagination" id="projectPagination"></div>
+  </div>
+
+  <!-- ── TAB: KEYWORD FILTER ─────────────────────────────────────────── -->
+  <div class="tab-panel" id="tab-keywords">
+    <div class="kw-section">
+      <div class="kw-section-title">
+        <span class="kw-dot" style="background:var(--ukri-pink)"></span>
+        Aspergillus
+      </div>
+      <div class="kw-desc">Projects explicitly researching <em>Aspergillus</em> species — including <em>A. fumigatus</em>, <em>A. flavus</em>, and related pathogens, food fungi, and industrial organisms.</div>
+      <div class="kw-chips">
+        <span class="kw-chip aspergillus" onclick="activateKwFilter('aspergillus', this)">Aspergillus</span>
+        <span class="kw-chip aspergillus" onclick="activateKwFilter('aspergillus fumigatus', this)">A. fumigatus</span>
+        <span class="kw-chip aspergillus" onclick="activateKwFilter('aspergillosis', this)">Aspergillosis</span>
+        <span class="kw-chip aspergillus" onclick="activateKwFilter('aspergillus flavus', this)">A. flavus</span>
+      </div>
+    </div>
+
+    <div class="kw-section">
+      <div class="kw-section-title">
+        <span class="kw-dot" style="background:var(--ukri-gold)"></span>
+        AMR &amp; Antifungal Resistance
+      </div>
+      <div class="kw-desc">Antimicrobial and antifungal resistance — including drug-resistant strains, resistance mechanisms, treatment failure, and related epidemiology.</div>
+      <div class="kw-chips">
+        <span class="kw-chip amr" onclick="activateKwFilter('AMR', this)">AMR</span>
+        <span class="kw-chip amr" onclick="activateKwFilter('antimicrobial resistance', this)">Antimicrobial resistance</span>
+        <span class="kw-chip amr" onclick="activateKwFilter('antifungal resistance', this)">Antifungal resistance</span>
+        <span class="kw-chip amr" onclick="activateKwFilter('drug resistance', this)">Drug resistance</span>
+        <span class="kw-chip amr" onclick="activateKwFilter('azole resistance', this)">Azole resistance</span>
+        <span class="kw-chip amr" onclick="activateKwFilter('triazole', this)">Triazole</span>
+      </div>
+    </div>
+
+    <div class="kw-section">
+      <div class="kw-section-title">
+        <span class="kw-dot" style="background:#D080FF"></span>
+        Social Science &amp; Humanities
+      </div>
+      <div class="kw-desc">Projects with social science, humanities, or interdisciplinary remit — including STS, policy, culture, and multispecies approaches.</div>
+      <div class="kw-chips">
+        <span class="kw-chip social" onclick="activateKwFilter('social science', this)">Social science</span>
+        <span class="kw-chip social" onclick="activateKwFilter('ethnograph', this)">Ethnography</span>
+        <span class="kw-chip social" onclick="activateKwFilter('policy', this)">Policy</span>
+        <span class="kw-chip social" onclick="activateKwFilter('governance', this)">Governance</span>
+        <span class="kw-chip social" onclick="activateKwFilter('multispecies', this)">Multispecies</span>
+        <span class="kw-chip social" onclick="activateKwFilter('humanities', this)">Humanities</span>
+        <span class="kw-chip social" onclick="activateKwFilter('mould', this)">Housing/Mould</span>
+      </div>
+    </div>
+
+    <div class="kw-section">
+      <div class="kw-section-title">
+        <span class="kw-dot" style="background:var(--ukri-teal)"></span>
+        Other Key Terms
+      </div>
+      <div class="kw-desc">Additional research themes — click any term to filter the project list below.</div>
+      <div class="kw-chips" id="extraKwChips"></div>
+    </div>
+
+    <hr class="section-divider">
+
+    <div class="filter-bar">
+      <input type="text" class="search-input" id="kwSearch" placeholder="Or type any keyword…" oninput="kwSearchFilter()">
+      <button class="clear-btn" onclick="clearKwFilter()">Clear</button>
+    </div>
+
+    <div class="table-header">
+      <span class="table-title">Filtered Results</span>
+      <span class="count-badge" id="kwCount">—</span>
+    </div>
+    <div class="table-wrap">
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Title</th>
+              <th>Funder</th>
+              <th>Category</th>
+              <th>Institution</th>
+              <th>Value (£)</th>
+            </tr>
+          </thead>
+          <tbody id="kwTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="pagination" id="kwPagination"></div>
+  </div>
+
+  <!-- ── TAB: SOCIAL SCIENCE ─────────────────────────────────────────── -->
+  <div class="tab-panel" id="tab-social">
+    <div class="ss-summary" id="ssSummary"></div>
+
+    <div class="chart-grid">
+      <div class="chart-card">
+        <div class="chart-title">Social Science Projects by Funder</div>
+        <div class="chart-wrap"><canvas id="chartSSFunder"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Social Science Themes</div>
+        <div class="chart-wrap tall">
+          <div class="topic-cloud" id="ssThemeCloud"></div>
+        </div>
+      </div>
+    </div>
+
+    <hr class="section-divider">
+
+    <div class="table-header">
+      <span class="table-title">Social Science Projects</span>
+      <span class="count-badge" id="ssCount">—</span>
+    </div>
+    <div class="table-wrap">
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Title</th>
+              <th>Funder</th>
+              <th>Category</th>
+              <th>Institution</th>
+              <th>Themes</th>
+            </tr>
+          </thead>
+          <tbody id="ssTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<!-- Abstract modal -->
+<div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
+  <div class="modal" id="modalBox">
+    <button class="modal-close" onclick="closeModalDirect()">✕</button>
+    <div class="modal-title" id="modalTitle"></div>
+    <div class="modal-meta" id="modalMeta"></div>
+    <div class="modal-abstract" id="modalAbstract"></div>
+  </div>
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────
+let allProjects = [];
+let ssProjects = [];
+let ssIDs = new Set();
+let currentTab = 'overview';
+let sortCol = '';
+let sortAsc = true;
+let projectPage = 1;
+let kwPage = 1;
+const PAGE_SIZE = 25;
+let activeKwFilter = '';
+
+// ── UKRI funder colours ────────────────────────────────────────────────
+const FUNDER_COLOURS = {
+  'BBSRC': '#5A8FFF',
+  'NERC': '#5FD88A',
+  'EPSRC': '#FF7EB3',
+  'MRC': '#00A896',
+  'AHRC': '#F5A623',
+  'ESRC': '#D080FF',
+  'Innovate UK': '#FFA060',
+  'Horizon Europe Guarantee': '#90C8FF',
+  'UKRI FLF': '#C0E0FF',
+  'ISPF': '#AAD4AA',
+  'NC3Rs': '#FFD0A0',
+  'COVID': '#FF8080',
+  'Infrastructure Fund': '#A0A0FF',
+  'STFC': '#80F0FF',
+};
+
+const CAT_COLOURS = {
+  'Studentship': '#5A8FFF',
+  'Research Grant': '#00A896',
+  'Research and Innovation': '#F5A623',
+  'Fellowship': '#D080FF',
+  'EU-Funded': '#90C8FF',
+  'Collaborative R&D': '#FF7EB3',
+  'Grant for R&D': '#5FD88A',
+  'Knowledge Transfer Partnership': '#FFA060',
+};
+
+// ── Data loading ──────────────────────────────────────────────────────
+function loadData() {
+  document.getElementById('loadingScreen').style.display = 'flex';
+
+  const p1 = new Promise((res, rej) => {
+    Papa.parse('./data/active_mould_fungi_projects.csv', {
+      download: true, header: true, skipEmptyLines: true,
+      complete: r => res(r.data),
+      error: rej
+    });
+  });
+
+  const p2 = new Promise((res, rej) => {
+    Papa.parse('./data/active_mould_fungi_social_science.csv', {
+      download: true, header: true, skipEmptyLines: true,
+      complete: r => res(r.data),
+      error: rej
+    });
+  });
+
+  Promise.all([p1, p2]).then(([proj, ss]) => {
+    allProjects = proj;
+    ssProjects = ss;
+    ssIDs = new Set(ss.map(p => p.id));
+
+    document.getElementById('lastUpdatedLabel').textContent =
+      'Last updated: ' + new Date().toLocaleDateString('en-GB', {day:'numeric',month:'short',year:'numeric'});
+
+    buildOverview();
+    buildProjectsTab();
+    buildSocialTab();
+    buildKeywordsTab();
+
+    document.getElementById('loadingScreen').style.display = 'none';
+  }).catch(err => {
+    console.error(err);
+    document.getElementById('loadingScreen').innerHTML =
+      '<div style="color:#FF7EB3;font-size:1rem;">Error loading data. Are the CSV files in the <code>data/</code> folder?</div>';
+  });
+}
+
+// ── Auto-refresh via GTR API ───────────────────────────────────────────
+async function refreshData() {
+  const btn = document.getElementById('refreshBtn');
+  const icon = document.getElementById('refreshIcon');
+  btn.disabled = true;
+  icon.className = 'spin';
+  icon.textContent = '↺';
+
+  try {
+    const KEYWORDS = [
+      'fungi', 'fungal', 'mould', 'mold', 'mushroom',
+      'mycorrhiza', 'Aspergillus', 'Candida', 'Fusarium',
+      'Penicillium', 'yeast', 'lichen'
+    ];
+    const allResults = [];
+    const seen = new Set();
+
+    for (const kw of KEYWORDS) {
+      const encoded = encodeURIComponent('"' + kw + '"');
+      const url = `https://gtr.ukri.org/search/project?term=${encoded}&fetchSize=100&fields=pro.t,pro.a,pro.gr,pro.id,pro.fund,pro.org`;
+      try {
+        const resp = await fetch(url, { headers: { 'Accept': 'application/json' } });
+        if (!resp.ok) continue;
+        const data = await resp.json();
+        const results = data?.searchResult?.results || [];
+        for (const item of results) {
+          const id = item?.projectComposition?.project?.id;
+          if (id && !seen.has(id)) {
+            seen.add(id);
+            const p = item.projectComposition;
+            allResults.push({
+              title: p?.project?.title || '',
+              abstract: p?.project?.abstractText || '',
+              id: id,
+              grant_category: p?.project?.grantCategory || '',
+              grant_offer: p?.project?.fund?.valuePounds || '',
+              start_date: p?.project?.fund?.start || '',
+              end_date: p?.project?.fund?.end || '',
+              funder_name: p?.project?.fund?.funder?.name || '',
+              lead_org: p?.leadResearchOrganisation?.name || '',
+              tech_abstract: '',
+              potential_impact: '',
+              status: 'Active',
+            });
+          }
+        }
+      } catch(e) { /* skip failed keyword */ }
+    }
+
+    if (allResults.length > 0) {
+      allProjects = allResults;
+      document.getElementById('lastUpdatedLabel').textContent =
+        'Live from GTR API — ' + new Date().toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
+      buildOverview();
+      buildProjectsTab();
+      buildKeywordsTab();
+      showToast(`✓ Refreshed: ${allResults.length} projects from GTR API`);
+    } else {
+      showToast('GTR API returned no results. Keeping existing data.', true);
+    }
+  } catch (err) {
+    showToast('Could not reach GTR API. Using local data.', true);
+  }
+
+  btn.disabled = false;
+  icon.className = '';
+  icon.textContent = '↺';
+}
+
+function showToast(msg, warn=false) {
+  const t = document.createElement('div');
+  t.style.cssText = `position:fixed;bottom:24px;right:24px;background:${warn?'#3a1a00':'#003a30'};
+    border:1px solid ${warn?'#F5A623':'#00A896'};color:#fff;padding:12px 18px;
+    border-radius:10px;font-size:0.82rem;z-index:500;max-width:360px;`;
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 4000);
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────
+function funderClass(name) {
+  if (!name) return 'fc-OTHER';
+  if (name.includes('BBSRC')) return 'fc-BBSRC';
+  if (name.includes('NERC')) return 'fc-NERC';
+  if (name.includes('EPSRC')) return 'fc-EPSRC';
+  if (name.includes('MRC')) return 'fc-MRC';
+  if (name.includes('AHRC')) return 'fc-AHRC';
+  if (name.includes('ESRC')) return 'fc-ESRC';
+  if (name.includes('Innovate')) return 'fc-IUK';
+  if (name.includes('Horizon')) return 'fc-HEG';
+  return 'fc-OTHER';
+}
+
+function fmtValue(v) {
+  if (!v || v === '') return '—';
+  const n = parseFloat(v);
+  if (isNaN(n)) return '—';
+  if (n >= 1e6) return '£' + (n/1e6).toFixed(2) + 'm';
+  if (n >= 1e3) return '£' + Math.round(n/1e3) + 'k';
+  return '£' + Math.round(n);
+}
+
+function hasKw(p, kw) {
+  const haystack = ((p.title||'') + ' ' + (p.abstract||'')).toLowerCase();
+  return haystack.includes(kw.toLowerCase());
+}
+
+function makeRow(p, extraCols) {
+  const isSS = ssIDs.has(p.id);
+  const ssData = isSS ? ssProjects.find(s => s.id === p.id) : null;
+  return `<tr>
+    <td class="td-title" onclick="openModal('${escId(p.id)}')">${escHtml(p.title)}</td>
+    <td><span class="funder-chip ${funderClass(p.funder_name)}">${escHtml(p.funder_name||'—')}</span></td>
+    <td><span class="cat-chip">${escHtml(p.grant_category||'—')}</span></td>
+    <td class="td-org">${escHtml(p.lead_org||'—')}</td>
+    ${extraCols ? extraCols(p, ssData) : `<td class="td-value">${fmtValue(p.grant_offer)}</td>`}
+  </tr>`;
+}
+
+function escHtml(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function escId(s) { return String(s||'').replace(/'/g,"\\'"); }
+
+// ── Overview tab ───────────────────────────────────────────────────────
+function buildOverview() {
+  const total = allProjects.length;
+  const asp = allProjects.filter(p => hasKw(p,'aspergillus')).length;
+  const amr = allProjects.filter(p =>
+    hasKw(p,'amr') || hasKw(p,'antimicrobial resistance') ||
+    hasKw(p,'antifungal resistance') || hasKw(p,'drug resistance')).length;
+  const ss = ssProjects.length;
+  const funded = allProjects.filter(p => p.grant_offer && parseFloat(p.grant_offer) > 0);
+  const totalFunding = funded.reduce((s, p) => s + parseFloat(p.grant_offer), 0);
+  const funders = new Set(allProjects.map(p => p.funder_name).filter(Boolean));
+
+  document.getElementById('statTotal').textContent = total;
+  document.getElementById('statAspergillus').textContent = asp;
+  document.getElementById('statAMR').textContent = amr;
+  document.getElementById('statSocial').textContent = ss;
+  document.getElementById('statFunding').textContent = fmtValue(totalFunding);
+  document.getElementById('statFunders').textContent = funders.size;
+
+  // Funder chart
+  const funderCounts = {};
+  allProjects.forEach(p => { funderCounts[p.funder_name||'Unknown'] = (funderCounts[p.funder_name||'Unknown']||0)+1; });
+  const funderSorted = Object.entries(funderCounts).sort((a,b)=>b[1]-a[1]);
+  renderChart('chartFunder', 'doughnut',
+    funderSorted.map(x=>x[0]),
+    [{ data: funderSorted.map(x=>x[1]),
+       backgroundColor: funderSorted.map(x => FUNDER_COLOURS[x[0]] || '#555'),
+       borderWidth: 0 }],
+    { plugins: { legend: { position:'right', labels:{ color:'#8B88A8', font:{size:11}, boxWidth:12, padding:8 } } } }
+  );
+
+  // Category chart
+  const catCounts = {};
+  allProjects.forEach(p => { catCounts[p.grant_category||'Unknown'] = (catCounts[p.grant_category||'Unknown']||0)+1; });
+  const catSorted = Object.entries(catCounts).sort((a,b)=>b[1]-a[1]);
+  renderChart('chartCategory', 'bar',
+    catSorted.map(x=>x[0]),
+    [{ data: catSorted.map(x=>x[1]),
+       backgroundColor: catSorted.map(x => CAT_COLOURS[x[0]] || '#555'),
+       borderRadius: 4, borderSkipped: false }],
+    {
+      indexAxis: 'y',
+      plugins:{ legend:{ display:false } },
+      scales:{
+        x:{ grid:{ color:'rgba(255,255,255,0.05)' }, ticks:{ color:'#8B88A8' } },
+        y:{ grid:{ display:false }, ticks:{ color:'#8B88A8', font:{size:11} } }
+      }
+    }
+  );
+
+  // Org chart — top 10
+  const orgCounts = {};
+  allProjects.forEach(p => { if(p.lead_org) orgCounts[p.lead_org] = (orgCounts[p.lead_org]||0)+1; });
+  const orgSorted = Object.entries(orgCounts).sort((a,b)=>b[1]-a[1]).slice(0,12);
+  renderChart('chartOrgs', 'bar',
+    orgSorted.map(x => x[0].replace('UNIVERSITY OF ','Uni. ').replace('UNIVERSITY ','Uni. ').substring(0,30)),
+    [{ data: orgSorted.map(x=>x[1]),
+       backgroundColor: '#00A896', borderRadius: 3, borderSkipped: false }],
+    {
+      indexAxis: 'y',
+      plugins:{ legend:{ display:false } },
+      scales:{
+        x:{ grid:{ color:'rgba(255,255,255,0.05)' }, ticks:{ color:'#8B88A8' } },
+        y:{ grid:{ display:false }, ticks:{ color:'#8B88A8', font:{size:10} } }
+      }
+    }
+  );
+
+  // Topic cloud
+  const TOPICS = [
+    ['plant',117],['pathogen',92],['disease',76],['infection',66],['resistance',64],
+    ['food',56],['soil',54],['treatment',45],['climate',42],['drug',37],
+    ['agriculture',36],['mycorrhiza',32],['antifungal',29],['immune',28],
+    ['ecology',24],['biodiversity',23],['candida',21],['microbiome',19],
+    ['genomics',17],['wood',16],['aspergillus',14],['mycotoxin',13],
+    ['biocontrol',11],['spore',10],['symbiosis',9],['fermentation',8],
+  ];
+  const max = TOPICS[0][1];
+  const cloud = document.getElementById('topicCloud');
+  cloud.innerHTML = TOPICS.map(([t, n]) => {
+    const size = n > 80 ? 'xl' : n > 40 ? 'lg' : '';
+    return `<span class="topic-tag ${size}" onclick="jumpKw('${t}')">${t} <small style="opacity:0.6">${n}</small></span>`;
+  }).join('');
+
+  // Recent table — first 10 with a value, else first 10
+  const featured = allProjects.filter(p=>p.grant_offer && parseFloat(p.grant_offer)>0).slice(0,10);
+  const recentRows = (featured.length ? featured : allProjects.slice(0,10));
+  document.getElementById('recentCount').textContent = recentRows.length + ' shown';
+  document.getElementById('recentTableBody').innerHTML = recentRows.map(p =>
+    makeRow(p, (p, ssData) => `<td class="td-value">${fmtValue(p.grant_offer)}</td>`)
+  ).join('');
+}
+
+// ── Projects tab ───────────────────────────────────────────────────────
+function buildProjectsTab() {
+  // populate filters
+  const funders = [...new Set(allProjects.map(p=>p.funder_name).filter(Boolean))].sort();
+  const cats = [...new Set(allProjects.map(p=>p.grant_category).filter(Boolean))].sort();
+  const fSel = document.getElementById('funderFilter');
+  fSel.innerHTML = '<option value="">All Funders</option>' +
+    funders.map(f => `<option value="${escHtml(f)}">${escHtml(f)}</option>`).join('');
+  const cSel = document.getElementById('categoryFilter');
+  cSel.innerHTML = '<option value="">All Categories</option>' +
+    cats.map(c => `<option value="${escHtml(c)}">${escHtml(c)}</option>`).join('');
+
+  renderProjectsTable();
+}
+
+function getFilteredProjects() {
+  const q = (document.getElementById('projectSearch')?.value||'').toLowerCase();
+  const funder = document.getElementById('funderFilter')?.value||'';
+  const cat = document.getElementById('categoryFilter')?.value||'';
+
+  return allProjects.filter(p => {
+    if (funder && p.funder_name !== funder) return false;
+    if (cat && p.grant_category !== cat) return false;
+    if (q) {
+      const hay = ((p.title||'') + ' ' + (p.abstract||'') + ' ' + (p.lead_org||'')).toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+function renderProjectsTable() {
+  let data = getFilteredProjects();
+
+  // Sort
+  if (sortCol) {
+    data = [...data].sort((a, b) => {
+      let av = a[sortCol]||'', bv = b[sortCol]||'';
+      if (sortCol === 'grant_offer') { av = parseFloat(av)||0; bv = parseFloat(bv)||0; }
+      if (av < bv) return sortAsc ? -1 : 1;
+      if (av > bv) return sortAsc ? 1 : -1;
+      return 0;
+    });
+  }
+
+  const total = data.length;
+  const pages = Math.ceil(total / PAGE_SIZE);
+  if (projectPage > pages) projectPage = 1;
+  const slice = data.slice((projectPage-1)*PAGE_SIZE, projectPage*PAGE_SIZE);
+
+  document.getElementById('projectCount').textContent = total + ' projects';
+  document.getElementById('projectTableBody').innerHTML = slice.map(p =>
+    makeRow(p, (p, ssData) =>
+      `<td class="td-value">${fmtValue(p.grant_offer)}</td>
+       <td>${ssIDs.has(p.id) ? '<span class="ss-badge">SS</span>' : ''}</td>`)
+  ).join('');
+
+  renderPagination('projectPagination', pages, projectPage, n => { projectPage = n; renderProjectsTable(); });
+}
+
+function filterProjects() { projectPage = 1; renderProjectsTable(); }
+function clearProjectFilters() {
+  document.getElementById('projectSearch').value = '';
+  document.getElementById('funderFilter').value = '';
+  document.getElementById('categoryFilter').value = '';
+  filterProjects();
+}
+
+function sortTable(col) {
+  if (sortCol === col) sortAsc = !sortAsc;
+  else { sortCol = col; sortAsc = true; }
+  document.querySelectorAll('th').forEach(th => {
+    th.classList.remove('sorted');
+    const arr = th.querySelector('.sort-arrow');
+    if (arr) arr.textContent = '↕';
+  });
+  // Mark sorted header
+  renderProjectsTable();
+}
+
+// ── Keywords tab ───────────────────────────────────────────────────────
+function buildKeywordsTab() {
+  const extras = [
+    'mycorrhiza','candida','fusarium','penicillium','mycelium',
+    'biocontrol','mycotoxin','spore','climate','soil','food',
+    'plant pathogen','ecology','microbiome','genomics','CRISPR',
+    'synthetic biology','epidemiology','forest','decomposition','symbiosis',
+  ];
+  document.getElementById('extraKwChips').innerHTML = extras.map(kw =>
+    `<span class="kw-chip general" onclick="activateKwFilter('${escHtml(kw)}', this)">${escHtml(kw)}</span>`
+  ).join('');
+
+  renderKwTable();
+}
+
+function activateKwFilter(kw, el) {
+  // Toggle
+  if (activeKwFilter === kw.toLowerCase()) {
+    activeKwFilter = '';
+    document.querySelectorAll('.kw-chip').forEach(c => c.classList.remove('active'));
+    document.getElementById('kwSearch').value = '';
+  } else {
+    activeKwFilter = kw.toLowerCase();
+    document.querySelectorAll('.kw-chip').forEach(c => c.classList.remove('active'));
+    el.classList.add('active');
+    document.getElementById('kwSearch').value = kw;
+  }
+  kwPage = 1;
+  renderKwTable();
+}
+
+function kwSearchFilter() {
+  activeKwFilter = (document.getElementById('kwSearch').value||'').toLowerCase();
+  document.querySelectorAll('.kw-chip').forEach(c => c.classList.remove('active'));
+  kwPage = 1;
+  renderKwTable();
+}
+
+function clearKwFilter() {
+  activeKwFilter = '';
+  document.getElementById('kwSearch').value = '';
+  document.querySelectorAll('.kw-chip').forEach(c => c.classList.remove('active'));
+  renderKwTable();
+}
+
+function renderKwTable() {
+  const kw = activeKwFilter;
+  let data = kw ? allProjects.filter(p => hasKw(p, kw)) : allProjects;
+
+  const total = data.length;
+  const pages = Math.ceil(total / PAGE_SIZE);
+  if (kwPage > pages) kwPage = 1;
+  const slice = data.slice((kwPage-1)*PAGE_SIZE, kwPage*PAGE_SIZE);
+
+  document.getElementById('kwCount').textContent = kw ? `${total} matching "${kw}"` : `${total} projects`;
+  document.getElementById('kwTableBody').innerHTML = slice.map(p =>
+    makeRow(p, (p) => `<td class="td-value">${fmtValue(p.grant_offer)}</td>`)
+  ).join('');
+
+  renderPagination('kwPagination', pages, kwPage, n => { kwPage = n; renderKwTable(); });
+}
+
+function jumpKw(kw) {
+  switchTab('keywords', document.querySelector('[data-tab="keywords"]'));
+  activeKwFilter = kw;
+  document.getElementById('kwSearch').value = kw;
+  kwPage = 1;
+  renderKwTable();
+}
+
+// ── Social Science tab ─────────────────────────────────────────────────
+function buildSocialTab() {
+  const total = ssProjects.length;
+  const funders = {};
+  const themes = {};
+
+  ssProjects.forEach(p => {
+    funders[p.funder_name||'Unknown'] = (funders[p.funder_name||'Unknown']||0)+1;
+    const ts = p.social_science_themes||'';
+    ts.split(';').forEach(t => {
+      const clean = t.trim();
+      if (clean) themes[clean] = (themes[clean]||0)+1;
+    });
+  });
+
+  // Summary cards
+  const funderSorted = Object.entries(funders).sort((a,b)=>b[1]-a[1]);
+  document.getElementById('ssSummary').innerHTML = `
+    <div class="ss-card"><div class="ss-card-label">Total SS Projects</div><div class="ss-card-value">${total}</div></div>
+    ${funderSorted.map(([f,n]) =>
+      `<div class="ss-card"><div class="ss-card-label">${f}</div><div class="ss-card-value">${n}</div></div>`
+    ).join('')}
+  `;
+  document.getElementById('ssCount').textContent = total + ' projects';
+
+  // Funder chart
+  renderChart('chartSSFunder', 'doughnut',
+    funderSorted.map(x=>x[0]),
+    [{ data: funderSorted.map(x=>x[1]),
+       backgroundColor: funderSorted.map(x => FUNDER_COLOURS[x[0]] || '#555'),
+       borderWidth: 0 }],
+    { plugins:{ legend:{ position:'right', labels:{ color:'#8B88A8', font:{size:11}, boxWidth:12 } } } }
+  );
+
+  // Theme cloud
+  const themesSorted = Object.entries(themes).sort((a,b)=>b[1]-a[1]);
+  document.getElementById('ssThemeCloud').innerHTML = themesSorted.map(([t,n]) =>
+    `<span class="topic-tag" onclick="jumpKw('${t}')">${t} <small style="opacity:0.6">${n}</small></span>`
+  ).join('');
+
+  // Table
+  document.getElementById('ssTableBody').innerHTML = ssProjects.map(p =>
+    `<tr>
+      <td class="td-title" onclick="openModal('${escId(p.id)}')">${escHtml(p.title)}</td>
+      <td><span class="funder-chip ${funderClass(p.funder_name)}">${escHtml(p.funder_name||'—')}</span></td>
+      <td><span class="cat-chip">${escHtml(p.grant_category||'—')}</span></td>
+      <td class="td-org">${escHtml(p.lead_org||'—')}</td>
+      <td><span class="ss-badge">${escHtml((p.social_science_themes||'—').split(';').map(s=>s.trim()).filter(Boolean).join(', '))}</span></td>
+    </tr>`
+  ).join('');
+}
+
+// ── Charts ─────────────────────────────────────────────────────────────
+const chartInstances = {};
+function renderChart(id, type, labels, datasets, extraOpts={}) {
+  if (chartInstances[id]) chartInstances[id].destroy();
+  const ctx = document.getElementById(id);
+  if (!ctx) return;
+  chartInstances[id] = new Chart(ctx, {
+    type,
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 400 },
+      plugins: {
+        legend: { labels: { color: '#8B88A8' } },
+        tooltip: { backgroundColor: '#14142A', borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1 },
+      },
+      ...extraOpts,
+      plugins: {
+        ...( extraOpts.plugins || {} ),
+        tooltip: { backgroundColor: '#14142A', borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1 },
+      }
+    }
+  });
+}
+
+// ── Pagination ─────────────────────────────────────────────────────────
+function renderPagination(containerId, pages, current, onChange) {
+  const el = document.getElementById(containerId);
+  if (!el || pages <= 1) { if(el) el.innerHTML=''; return; }
+  let html = `<span class="page-info">Page ${current} of ${pages}</span>`;
+  if (current > 1) html += `<button class="page-btn" onclick="(${onChange})(${current-1})">‹ Prev</button>`;
+  const start = Math.max(1, current-2), end = Math.min(pages, current+2);
+  for (let i=start; i<=end; i++) {
+    html += `<button class="page-btn ${i===current?'active':''}" onclick="(${onChange})(${i})">${i}</button>`;
+  }
+  if (current < pages) html += `<button class="page-btn" onclick="(${onChange})(${current+1})">Next ›</button>`;
+  el.innerHTML = html;
+}
+
+// ── Modal ──────────────────────────────────────────────────────────────
+function openModal(id) {
+  const p = allProjects.find(x=>x.id===id) || ssProjects.find(x=>x.id===id);
+  if (!p) return;
+  const ssData = ssProjects.find(x=>x.id===id);
+
+  document.getElementById('modalTitle').textContent = p.title;
+  document.getElementById('modalMeta').innerHTML = `
+    <span class="funder-chip ${funderClass(p.funder_name)}">${escHtml(p.funder_name||'—')}</span>
+    <span class="cat-chip">${escHtml(p.grant_category||'—')}</span>
+    ${p.lead_org ? `<span class="cat-chip">${escHtml(p.lead_org)}</span>` : ''}
+    ${p.grant_offer && parseFloat(p.grant_offer)>0 ? `<span class="cat-chip">${fmtValue(p.grant_offer)}</span>` : ''}
+    ${ssData ? `<span class="ss-badge">Social Science</span>` : ''}
+    ${ssData?.social_science_themes ? `<span class="ss-badge">${escHtml(ssData.social_science_themes)}</span>` : ''}
+  `;
+  document.getElementById('modalAbstract').textContent = p.abstract || 'No abstract available.';
+  document.getElementById('modalOverlay').classList.add('open');
+}
+function closeModal(e) {
+  if (e.target === document.getElementById('modalOverlay')) closeModalDirect();
+}
+function closeModalDirect() {
+  document.getElementById('modalOverlay').classList.remove('open');
+}
+document.addEventListener('keydown', e => { if (e.key==='Escape') closeModalDirect(); });
+
+// ── Tab switching ──────────────────────────────────────────────────────
+function switchTab(name, el) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  if (el) el.classList.add('active');
+  currentTab = name;
+}
+
+// ── Init ───────────────────────────────────────────────────────────────
+loadData();
+</script>
+</body>
+</html>
