@@ -99,30 +99,57 @@ def gtr_get(path: str, params: dict = None) -> dict:
         return json.loads(resp.read().decode("utf-8"))
 
 
+_org_cache: dict[str, str] = {}
+
+def fetch_org_name(org_id: str) -> str:
+    """Fetch and cache an organisation name by ID."""
+    if org_id in _org_cache:
+        return _org_cache[org_id]
+    try:
+        data = gtr_get(f"/gtr/api/organisations/{org_id}")
+        name = data.get("name", "")
+        _org_cache[org_id] = name
+        time.sleep(REQUEST_DELAY)
+        return name
+    except Exception:
+        return ""
+
+
+def fetch_fund_value(fund_id: str) -> str:
+    """Fetch grant value in pounds from the fund endpoint."""
+    try:
+        data = gtr_get(f"/gtr/api/funds/{fund_id}")
+        vp = data.get("valuePounds") or {}
+        amount = vp.get("amount", "")
+        time.sleep(REQUEST_DELAY)
+        return str(amount) if amount != "" else ""
+    except Exception:
+        return ""
+
+
 def search_projects(term: str) -> list[dict]:
     """Return all project records matching a search term."""
-    encoded_term = quote(f'"{term}"')
     results = []
     page = 1
 
     while page <= MAX_PAGES_PER_TERM:
         params = {
-            "term": f'"{term}"',
-            "fetchSize": FETCH_SIZE,
-            "page": page,
+            "q": f'"{term}"',
+            "n": FETCH_SIZE,
+            "p": page,
         }
         try:
-            data = gtr_get("/search/project", params)
+            data = gtr_get("/gtr/api/projects", params)
         except (URLError, HTTPError) as e:
             print(f"  ⚠ API error for '{term}' page {page}: {e}", file=sys.stderr)
             break
 
-        hits = data.get("searchResult", {}).get("results", [])
+        hits = data.get("project", [])
         if not hits:
             break
 
         results.extend(hits)
-        total_pages = int(data.get("searchResult", {}).get("totalPages", 1))
+        total_pages = int(data.get("totalPages", 1))
         if page >= total_pages:
             break
         page += 1
@@ -131,30 +158,67 @@ def search_projects(term: str) -> list[dict]:
     return results
 
 
+def _ms_to_date(ms) -> str:
+    """Convert a millisecond timestamp to YYYY-MM-DD, or return empty string."""
+    if not ms:
+        return ""
+    try:
+        from datetime import timezone
+        return datetime.fromtimestamp(int(ms) / 1000, tz=timezone.utc).strftime("%Y-%m-%d")
+    except Exception:
+        return ""
+
+
 def extract_project(raw: dict) -> dict | None:
-    """Flatten a GTR API result into a CSV-compatible dict."""
-    pc = raw.get("projectComposition", {})
-    proj = pc.get("project", {})
-    if not proj:
+    """Flatten a GTR API v2 project into a CSV-compatible dict."""
+    proj_id = raw.get("id", "")
+    if not proj_id:
         return None
 
-    fund = proj.get("fund", {})
-    funder = fund.get("funder", {})
-    lead_org = pc.get("leadResearchOrganisation", {})
+    links = raw.get("links", {}).get("link", [])
+
+    # Lead org: prefer participantValues (no extra call), else fetch from API
+    lead_org = ""
+    grant_offer = ""
+    participants = (raw.get("participantValues") or {}).get("participant", [])
+    for p in participants:
+        if p.get("role") == "LEAD_PARTICIPANT":
+            lead_org = p.get("organisationName", "")
+            amount = p.get("grantOffer", "")
+            grant_offer = str(amount) if amount != "" else ""
+            break
+
+    if not lead_org:
+        lead_org_links = [l for l in links if l.get("rel") == "LEAD_ORG"]
+        if lead_org_links:
+            org_id = lead_org_links[0]["href"].rstrip("/").split("/")[-1]
+            lead_org = fetch_org_name(org_id)
+
+    # Dates and fund value from FUND link
+    start_date = ""
+    end_date = ""
+    fund_links = [l for l in links if l.get("rel") == "FUND"]
+    if fund_links:
+        fl = fund_links[0]
+        start_date = _ms_to_date(fl.get("start"))
+        end_date = _ms_to_date(fl.get("end"))
+        if not grant_offer:
+            fund_id = fl["href"].rstrip("/").split("/")[-1]
+            grant_offer = fetch_fund_value(fund_id)
 
     return {
-        "title": proj.get("title", "").strip(),
-        "abstract": proj.get("abstractText", "").strip(),
-        "id": proj.get("id", ""),
-        "grant_category": proj.get("grantCategory", ""),
-        "grant_offer": fund.get("valuePounds", ""),
-        "start_date": fund.get("start", ""),
-        "end_date": fund.get("end", ""),
-        "funder_name": funder.get("name", ""),
-        "lead_org": lead_org.get("name", ""),
-        "tech_abstract": proj.get("techAbstractText", "").strip(),
-        "potential_impact": proj.get("potentialImpactText", "").strip(),
-        "status": proj.get("status", "Active"),
+        "title": raw.get("title", "").strip(),
+        "abstract": (raw.get("abstractText") or "").strip(),
+        "id": proj_id,
+        "grant_category": raw.get("grantCategory", ""),
+        "grant_offer": grant_offer,
+        "start_date": start_date,
+        "end_date": end_date,
+        "funder_name": raw.get("leadFunder", ""),
+        "lead_org": lead_org,
+        "tech_abstract": (raw.get("techAbstractText") or "").strip(),
+        "potential_impact": (raw.get("potentialImpact") or "").strip(),
+        "status": raw.get("status", "Active"),
     }
 
 
@@ -190,21 +254,33 @@ def run(dry_run: bool = False):
     if dry_run:
         print("  DRY RUN — no files will be written.\n")
 
-    all_rows: dict[str, dict] = {}   # keyed by project id to deduplicate
+    # Phase 1: collect unique raw project records across all search terms.
+    # Deduplication happens here, before any expensive org/fund API calls.
+    unique_raws: dict[str, dict] = {}   # keyed by project id
 
     for term in SEARCH_TERMS:
         print(f"  Searching: '{term}'…", end=" ", flush=True)
         raw_results = search_projects(term)
         new_count = 0
         for raw in raw_results:
-            row = extract_project(raw)
-            if row and row["id"] and row["id"] not in all_rows:
-                all_rows[row["id"]] = row
+            pid = raw.get("id", "")
+            if pid and pid not in unique_raws:
+                unique_raws[pid] = raw
                 new_count += 1
         print(f"{new_count} new / {len(raw_results)} total results")
         time.sleep(REQUEST_DELAY)
 
-    print(f"\n  Total unique projects: {len(all_rows)}")
+    print(f"\n  Total unique projects: {len(unique_raws)}")
+    print(f"  Fetching institution and funding details…\n")
+
+    # Phase 2: enrich each unique project (org + fund calls happen once per project).
+    all_rows: dict[str, dict] = {}
+    for i, (pid, raw) in enumerate(unique_raws.items(), 1):
+        row = extract_project(raw)
+        if row:
+            all_rows[pid] = row
+        if i % 50 == 0:
+            print(f"    {i}/{len(unique_raws)} enriched…")
 
     # Convert to list and sort by title
     projects = sorted(all_rows.values(), key=lambda r: r.get("title", "").lower())
